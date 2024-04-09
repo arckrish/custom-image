@@ -1,15 +1,5 @@
 FROM registry.access.redhat.com/ubi8/ubi:8.9-1160
 
-LABEL name="workbench-images:jupyter-minimal-c9s-py311_2024a_20240408" \
-    summary="jupyter-minimal workbench image with Python py311 based on c9s" \
-    description="jupyter-minimal workbench image with Python py311 based on c9s" \
-    io.k8s.description="jupyter-minimal workbench image  with Python py311 based on c9s for ODH or RHODS" \
-    io.k8s.display-name="jupyter-minimal workbench image  with Python py311 based on c9s" \
-    authoritative-source-url="https://github.com/opendatahub-contrib/workbench-images" \
-    io.openshift.build.commit.ref="2024a" \
-    io.openshift.build.source-location="https://github.com/opendatahub-contrib/workbench-images" \
-    io.openshift.build.image="https://quay.io/opendatahub-contrib/workbench-images:jupyter-minimal-c9s-py311_2024a_20240408"
-
 ##########################
 # Deploy Python packages #
 ##########################
@@ -25,8 +15,8 @@ COPY --chown=1001:0 requirements.txt ./
 # (all commands are chained to minimize layer size)
 RUN echo "Installing softwares and packages" && \
     # Install Python packages \
-    #pip install --no-cache-dir -r requirements.txt && \
-    python3 -m pip install --no-cache-dir -r requirements.txt \
+    pip install --no-cache-dir -r requirements.txt && \
+    #python3 -m pip install --no-cache-dir -r requirements.txt \
     # Fix permissions to support pip in Openshift environments \
     chmod -R g+w /opt/app-root/lib/python3.11/site-packages && \
     fix-permissions /opt/app-root -P
