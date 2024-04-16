@@ -1,4 +1,3 @@
-pandoc
 texlive-adjustbox
 texlive-bibtex
 texlive-charter
@@ -24,6 +23,5 @@ texlive-ulem
 texlive-upquote
 texlive-utopia
 texlive-wasy
-texlive-wasy-type1
 texlive-wasysym
 texlive-xetex

@@ -1,0 +1,288 @@
+FROM registry.access.redhat.com/ubi8/ubi:8.6
+
+LABEL name="workbench-images:jupyter-minimal-c9s-py39_verizon_2024" \
+    summary="jupyter-minimal workbench image with Python py39 based on c9s" \
+    description="jupyter-minimal workbench image with Python py39 based on c9s" \
+    io.k8s.description="jupyter-minimal workbench image  with Python py39 based on c9s for ODH or RHODS" \
+    io.k8s.display-name="jupyter-minimal workbench image  with Python py39 based on c9s" \
+    authoritative-source-url="https://github.com/opendatahub-contrib/workbench-images" \
+    io.openshift.build.commit.ref="verizon" \
+    io.openshift.build.source-location="https://github.com/opendatahub-contrib/workbench-images" \
+    io.openshift.build.image="https://quay.io/opendatahub-contrib/workbench-images:jupyter-minimal-c9s-py39_verizon_2024"
+
+
+###############################
+# Base Image Pre-requisites #
+################################
+
+ENV VERSION = 1 
+ENV REVISION = 2
+LABEL vendor="Habanalabs Ltd."
+LABEL release="${VERSION}-${REVISION}"
+
+COPY LICENSE /licenses/
+
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm && \
+    dnf clean all && rm -rf /var/cache/yum
+
+RUN echo "[appstream]" > /etc/yum.repos.d/CentOS-Linux-AppStream.repo && \
+    echo "name=CentOS Linux 8 - AppStream" >> /etc/yum.repos.d/CentOS-Linux-AppStream.repo && \
+    echo "mirrorlist=http://mirrorlist.centos.org/?release=\$releasever-stream&arch=\$basearch&repo=AppStream&infra=\$infra" >> /etc/yum.repos.d/CentOS-Linux-AppStream.repo && \
+    echo "gpgcheck=0" >> /etc/yum.repos.d/CentOS-Linux-AppStream.repo
+
+
+RUN echo "[BaseOS]" > /etc/yum.repos.d/CentOS-Linux-BaseOS.repo && \
+    echo "name=CentOS Linux 8 - BaseOS" >> /etc/yum.repos.d/CentOS-Linux-BaseOS.repo && \
+    echo "mirrorlist=http://mirrorlist.centos.org/?release=\$releasever-stream&arch=\$basearch&repo=BaseOS&infra=\$infra" >> /etc/yum.repos.d/CentOS-Linux-BaseOS.repo && \
+    echo "gpgcheck=0" >> /etc/yum.repos.d/CentOS-Linux-BaseOS.repo
+
+RUN dnf install -y \
+    clang \
+    cmake3 \
+    cpp \
+    gcc \
+    gcc-c++ \
+    glibc \
+    glibc-headers \
+    glibc-devel \
+    jemalloc \
+    libarchive \
+    libksba \
+    unzip \
+    llvm \
+    lsof \
+    python38-devel \
+    openssh-clients \
+    libjpeg-devel \
+    openssh-server \
+    redhat-lsb-core \
+    wget \
+    git \
+    jq \
+    mesa-libGL \
+    iproute \
+    python3-dnf-plugin-versionlock && \
+    # update pkgs (except OS version) for resolving potentials CVEs
+    dnf versionlock add redhat-release* && \
+    dnf update -y && \
+    dnf clean all && rm -rf /var/cache/yum
+
+COPY install_efa.sh .
+RUN chmod +x install_efa.sh && ./install_efa.sh && rm install_efa.sh && rm -rf /etc/ld.so.conf.d/efa.conf /etc/profile.d/efa.sh
+
+ENV LIBFABRIC_VERSION="1.20.0"
+ENV LIBFABRIC_ROOT="/opt/habanalabs/libfabric-${LIBFABRIC_VERSION}"
+ENV MPI_ROOT=/opt/amazon/openmpi
+ENV LD_LIBRARY_PATH=$LIBFABRIC_ROOT/lib:${MPI_ROOT}/lib:/usr/lib/habanalabs:$LD_LIBRARY_PATH
+ENV PATH=${LIBFABRIC_ROOT}/bin:${MPI_ROOT}/bin:$PATH
+ENV OPAL_PREFIX=${MPI_ROOT}
+ENV MPICC=${MPI_ROOT}/bin/mpicc
+ENV RDMAV_FORK_SAFE=1
+ENV FI_EFA_USE_DEVICE_RDMA=1
+
+# RUN echo "[habanalabs]" > /etc/yum.repos.d/habanalabs.repo && \
+#     echo "name=Habana RH8 Linux repo" >> /etc/yum.repos.d/habanalabs.repo && \
+#     echo "baseurl=https://${ARTIFACTORY_URL}/artifactory/rhel/8/8.6" >> /etc/yum.repos.d/habanalabs.repo && \
+#     echo "gpgkey=https://${ARTIFACTORY_URL}/artifactory/rhel/8/8.6/repodata/repomd.xml.key" >> /etc/yum.repos.d/habanalabs.repo
+
+# RUN echo "[powertools]" > /etc/yum.repos.d/powertools.repo && \
+#     echo "name=powertools" >> /etc/yum.repos.d/powertools.repo && \
+#     echo "baseurl=http://mirror.centos.org/centos/8-stream/PowerTools/x86_64/os/"  >> /etc/yum.repos.d/powertools.repo && \
+#     echo "gpgcheck=0" >> /etc/yum.repos.d/powertools.repo
+
+# RUN dnf install -y habanalabs-rdma-core-"$VERSION"-"$REVISION".el8 \
+#         habanalabs-thunk-"$VERSION"-"$REVISION".el8 \
+#         habanalabs-firmware-tools-"$VERSION"-"$REVISION".el8 \
+#         habanalabs-graph-"$VERSION"-"$REVISION".el8 && \
+#     rm -f /etc/yum.repos.d/habanalabs.repo && rm -rf /tmp/* && \
+#     dnf clean all && rm -rf /var/cache/yum
+
+# RUN rpm -V habanalabs-rdma-core && rpm -V habanalabs-thunk && rpm -V habanalabs-firmware-tools && rpm -V habanalabs-graph
+
+# There is no need to store pip installation files inside docker image
+ENV PIP_NO_CACHE_DIR=on
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV RDMA_CORE_ROOT=/opt/habanalabs/rdma-core/src
+ENV RDMA_CORE_LIB=${RDMA_CORE_ROOT}/build/lib
+
+# RUN wget -nv -O /tmp/libfabric-${LIBFABRIC_VERSION}.tar.bz2 https://github.com/ofiwg/libfabric/releases/download/v${LIBFABRIC_VERSION}/libfabric-${LIBFABRIC_VERSION}.tar.bz2 && \
+#     cd /tmp/ && tar xf /tmp/libfabric-${LIBFABRIC_VERSION}.tar.bz2 && \
+#     cd /tmp/libfabric-${LIBFABRIC_VERSION} && \
+#     ./configure --prefix=$LIBFABRIC_ROOT --enable-psm3-verbs --enable-verbs=yes --with-synapseai=/usr && \
+#     make && make install
+
+ENV LIBOFI_VERSION="0.0.1"
+# RUN wget -nv -O /tmp/v${LIBOFI_VERSION}.tar.gz https://github.com/HabanaAI/hccl_ofi_wrapper/archive/refs/tags/v${LIBOFI_VERSION}.tar.gz && \
+#     cd /tmp/ && tar xf /tmp/v${LIBOFI_VERSION}.tar.gz && \
+#     cd /tmp/hccl_ofi_wrapper-${LIBOFI_VERSION} && \
+#     make && cp -f libhccl_ofi_wrapper.so /usr/lib/habanalabs/libhccl_ofi_wrapper.so && \
+#     cd / && \
+#     rm -rf /tmp/v${LIBOFI_VERSION}.tar.gz /tmp/hccl_ofi_wrapper-${LIBOFI_VERSION}
+
+RUN python3.8 -m pip install pip==23.3.1 setuptools==67.3.3 wheel==0.38.4
+
+RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 2 && \
+    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.6 1 && \
+    alternatives --set python3 /usr/bin/python3.8
+
+#RUN python3.8 -m pip install habana_media_loader=="${VERSION}"."${REVISION}"
+
+# SSH configuration necessary to support mpi-operator v2
+RUN mkdir -p /var/run/sshd && \
+    sed -i 's/[ #]\(.*StrictHostKeyChecking \).*/ \1no/g' /etc/ssh/ssh_config && \
+    sed -i 's/#\(ForwardAgent \).*/\1yes/g' /etc/ssh/ssh_config && \
+    echo "    UserKnownHostsFile /dev/null" >> /etc/ssh/ssh_config && \
+    sed -i 's/#\(StrictModes \).*/\1no/g' /etc/ssh/sshd_config && \
+    ssh-keygen -A && \
+    mkdir -p /var/run/sshd && echo "/usr/sbin/sshd -p 3022" | tee -a ~/.bashrc
+
+RUN echo "export LANG=en_US.UTF-8" >> /root/.bashrc
+RUN export LANG=en_US.UTF-8
+ENV GC_KERNEL_PATH=/usr/lib/habanalabs/libtpc_kernels.so
+ENV HABANA_LOGS=/var/log/habana_logs/
+ENV HABANA_SCAL_BIN_PATH=/opt/habanalabs/engines_fw
+ENV HABANA_PLUGINS_LIB_PATH=/opt/habanalabs/habana_plugins
+
+
+###########################
+# Deploy OS Packages      #
+###########################
+
+USER 0
+
+WORKDIR /opt/app-root/bin/
+
+COPY --chown=1001:0 os-ide/os-packages.txt ./os-ide/os-packages.txt
+
+RUN yum install -y $(cat os-ide/os-packages.txt) && \ 
+    rm -f os-ide/os-packages.txt && \
+    yum -y clean all --enablerepo='*' && \
+    rm -rf /var/cache/dnf && \
+    find /var/log -type f -name "*.log" -exec rm -f {} \;
+
+###########################
+
+##########################
+# Deploy Python packages #
+##########################
+
+USER 1001
+
+WORKDIR /opt/app-root/bin/
+
+#ENV PATH=/opt/app-root/bin:~/.local/lib:$PATH
+ENV APP_ROOT=/opt/app-root 
+#ENV HOME=/opt/app-root/src
+#ENV PATH=$PATH:$HOME/.local/bin
+
+# Copy packages list
+COPY --chown=1001:0 requirements.txt ./
+COPY --chown=1001:0 --chmod=777 ./utils/fix-permissions.sh ./
+
+# Install packages and cleanup
+# (all commands are chained to minimize layer size)
+RUN echo "Installing softwares and packages" && \
+    # Install Python packages \
+    # pip install --no-cache-dir -r requirements.txt
+    # pip install --no-cache-dir -r requirements.txt && \
+    # Fix permissions to support pip in Openshift environments \
+    python3.8 -m venv ${APP_ROOT} && \
+    ${APP_ROOT}/bin/pip install --no-cache-dir -r requirements.txt && \
+    chown -R 1001:0 /opt/app-root/ && \
+    #chmod -R g+w /opt/app-root/bin/~/.local/lib/python3.8/site-packages && \
+    chmod -R g+w /opt/app-root/lib/python3.8/site-packages && \
+    ./fix-permissions.sh /opt/app-root -P
+
+WORKDIR /opt/app-root/src/
+
+##########################
+
+##############################
+# Deploy Jupyterlab packages #
+##############################
+
+USER 1001
+
+WORKDIR /opt/app-root/bin
+
+# Copy packages list
+COPY --chown=1001:0 requirements-jupyter.txt ./
+
+# Copy notebook launcher and utils
+COPY --chown=1001:0 utils utils/
+COPY --chown=1001:0 start-notebook.sh ./
+
+# Streamlit extension installation
+COPY --chown=1001:0 streamlit-launcher.sh ./
+COPY --chown=1001:0 streamlit-menu/dist/jupyterlab_streamlit_menu-0.1.0-py3-none-any.whl ./
+
+# Copy Elyra setup to utils so that it's sourced at startup
+COPY --chown=1001:0 setup-elyra.sh ./utils/
+
+USER 0
+
+# Install packages and cleanup
+# (all commands are chained to minimize layer size)
+RUN echo "Installing softwares and packages" && \
+    # Install Python packages \
+    pip install --no-cache-dir -r requirements-jupyter.txt && \
+    pip install --no-cache-dir ./jupyterlab_streamlit_menu-0.1.0-py3-none-any.whl && \
+    rm -f ./jupyterlab_streamlit_menu-0.1.0-py3-none-any.whl
+    # setup path for runtime configuration \
+    #mkdir /opt/app-root/runtimes
+
+    USER 1001
+
+    # switch to Data Science Pipeline \
+    COPY --chown=1001:0 utils/pipeline-flow.svg /opt/app-root/lib/python3.8/site-packages/elyra/static/icons/kubeflow.svg
+    COPY --chown=1001:0 utils/runtime_type.py /opt/app-root/lib/python3.8/site-packages/elyra/pipeline/runtime_type.py
+    COPY --chown=1001:0 utils/kfp.json /opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/kfp.json
+    COPY --chown=1001:0 utils/kfp_authentication.py /opt/app-root/lib/python3.8/site-packages/elyra/pipeline/kfp/kfp_authentication.py
+    COPY --chown=1001:0 utils/processor_kfp.py /opt/app-root/lib/python3.8/site-packages/elyra/pipeline/kfp/processor_kfp.py
+    COPY --chown=1001:0 utils/local-directory-catalog.json /opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/local-directory-catalog.json
+    COPY --chown=1001:0 utils/local-file-catalog.json /opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/local-file-catalog.json
+    COPY --chown=1001:0 utils/url-catalog.json /opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/url-catalog.json
+
+    #RUN cp utils/pipeline-flow.svg /opt/app-root/bin/~/.local/lib/python3.8/site-packages/elyra/static/icons/kubeflow.svg && \
+    RUN echo ********** SITE_PACKAGES *************** &&\
+     ls -ltra /opt/app-root/lib/python3.8/site-packages/elyra
+
+    RUN sed -i "s/Kubeflow Pipelines/Data Science/g" /opt/app-root/lib/python3.8/site-packages/elyra/pipeline/runtime_type.py && \
+    sed -i "s/Kubeflow Pipelines/Data Science Pipelines/g" /opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/kfp.json && \
+    sed -i "s/kubeflow-service/data-science-pipeline-service/g" /opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/kfp.json && \
+    sed -i "s/\"default\": \"Argo\",/\"default\": \"Tekton\",/g" /opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/kfp.json && \
+    # Workaround for passing ssl_sa_cert and to ensure that Elyra redirects to a correct pipeline run URL \
+    patch /opt/app-root/lib/python3.8/site-packages/elyra/pipeline/kfp/kfp_authentication.py -i utils/kfp_authentication.patch && \
+    patch /opt/app-root/lib/python3.8/site-packages/elyra/pipeline/kfp/processor_kfp.py -i utils/processor_kfp.patch && \
+    # switch to Data Science Pipeline in component catalog \
+    DIR_COMPONENT="/opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/local-directory-catalog.json" && \
+    FILE_COMPONENT="/opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/local-file-catalog.json" && \
+    URL_COMPONENT="/opt/app-root/lib/python3.8/site-packages/elyra/metadata/schemas/url-catalog.json" && \
+    tmp=$(mktemp) && \
+    jq '.properties.metadata.properties.runtime_type = input' $DIR_COMPONENT utils/component_runtime.json > "$tmp" && mv "$tmp" $DIR_COMPONENT && \
+    jq '.properties.metadata.properties.runtime_type = input' $FILE_COMPONENT utils/component_runtime.json > "$tmp" && mv "$tmp" $FILE_COMPONENT && \
+    jq '.properties.metadata.properties.runtime_type = input' $URL_COMPONENT utils/component_runtime.json > "$tmp" && mv "$tmp" $URL_COMPONENT && \
+    #sed -i "s/metadata.metadata.runtime_type/\"DATA_SCIENCE_PIPELINES\"/g" /opt/app-root/share/jupyter/labextensions/@elyra/pipeline-editor-extension/static/lib_index_js.*.js && \
+    # Remove Elyra logo from JupyterLab because this is not a pure Elyra image \
+    # sed -i "s/widget\.id === \x27jp-MainLogo\x27/widget\.id === \x27jp-MainLogo\x27 \&\& false/" /opt/app-root/share/jupyter/labextensions/@elyra/theme-extension/static/lib_index_js.*.js && \
+    # # Replace Notebook's launcher, "(ipykernel)" with Python's version 3.x.y \
+    # sed -i -e "s/Python.*/$(python --version | cut -d '.' -f-2)\",/" /opt/app-root/share/jupyter/kernels/python3/kernel.json && \
+    # # Remove default Elyra runtime-images \
+    # rm /opt/app-root/share/jupyter/metadata/runtime-images/*.json && \
+    # # Fix permissions to support pip in Openshift environments \
+    chmod -R g+w /opt/app-root/lib/python3.8/site-packages && \
+    ./fix-permissions.sh /opt/app-root -P
+
+# Copy Elyra runtime-images definitions and set the version
+#COPY --chown=1001:0 runtime-images/ /opt/app-root/share/jupyter/metadata/runtime-images/
+#RUN sed -i "s/RELEASE/verizon/" /opt/app-root/share/jupyter/metadata/runtime-images/*.json 
+
+# Jupyter Server config to allow hidden files/folders in explorer. Ref: https://jupyterlab.readthedocs.io/en/latest/user/files.html#displaying-hidden-files
+# Jupyter Lab config to hide disabled exporters (WebPDF, Qtpdf, Qtpng)
+#COPY --chown=1001:0 etc/ /opt/app-root/etc/jupyter/
+
+WORKDIR /opt/app-root/src
+
+ENTRYPOINT ["start-notebook.sh"]
+
+
